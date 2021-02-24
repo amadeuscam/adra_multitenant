@@ -1,0 +1,51 @@
+{% extends "_base.html" %}
+{% load crispy_forms_tags %}
+
+
+{% block title %}
+    Adra-Gastos
+{% endblock %}
+
+
+{% block content %}
+    <h1 class="text-center mb-5">Control de gastos</h1>
+    <div class="row" style="min-height: 70vh">
+        <div class="col-md-6">
+            <table class="table table-striped">
+                <thead class="thead-dark">
+                <tr>
+                    <th scope="col">concepto</th>
+                    <th scope="col">fecha</th>
+                    <th scope="col">importe</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for gasto in gasto_ret %}
+
+                    <tr >
+                        <th scope="row">{{ gasto.concepto }}</th>
+                        <td>{{ gasto.fecha }}</td>
+                        <td style="color: {% if gasto.tipo == 'ingreso' %} #5eba13 {% else %} red{% endif %}">{{ gasto.importe }} €</td>
+
+                    </tr>
+                {% endfor %}
+
+
+                </tbody>
+            </table>
+        </div>
+        <div class="col-md-6">
+            <h3>Añadir Ingresos / Gastos</h3>
+            <form action="" method="post">
+                {% csrf_token %}
+                {{ form_g|crispy }}
+                <div class="form-group">
+                    <button class="btn btn-success btn-block" type="submit">Agregar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+{% endblock content %}
+
