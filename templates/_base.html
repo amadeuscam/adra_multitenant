@@ -86,13 +86,16 @@
                             <i class="large material-icons" style="font-size: 14px;color: darkslategrey">trending_up</i>
                             Estadísticas</a>
                     </li>
-                    {% if request.session.telegram_active %}
-                        <li>
-                            <a href="{% url 'adra:telegram_message_view' %}"
-                               class="{% if nbar == 'tel' %}text-primary{% endif %}">
-                                <i class="large material-icons" style="font-size: 14px;color: darkslategrey">send</i>
-                                Telegram</a>
-                        </li>
+                    {% if user.is_staff %}
+                        {% if request.session.telegram_active %}
+                            <li>
+                                <a href="{% url 'adra:telegram_message_view' %}"
+                                   class="{% if nbar == 'tel' %}text-primary{% endif %}">
+                                    <i class="large material-icons"
+                                       style="font-size: 14px;color: darkslategrey">send</i>
+                                    Telegram</a>
+                            </li>
+                        {% endif %}
                     {% endif %}
                     {% if user.is_staff %}
                         <li>
@@ -492,8 +495,15 @@
                                         <h2 class="text-dark text-truncate" title="{{ hijo.nombre_apellido }}">
                                             {{ hijo.nombre_apellido }}</h2>
                                         <p class="card-text  ">Parentesco:<span
-                                                class="text-warning">{{ hijo.parentesco|upper }}</span></p>
-                                        <p class="card-text">Dni: {{ hijo.dni|capfirst }}</p>
+                                                class="text-warning"> {{ hijo.parentesco|upper }}</span></p>
+                                        <p class="card-text">Dni:
+                                            {% if hijo.dni %}
+                                                {{ hijo.dni }}
+                                            {% else %}
+                                                {{ hijo.otros_documentos }}
+                                            {% endif %}
+
+                                        </p>
                                         <p class="card-text">Sexo: {{ hijo.sexo }}</p>
                                         <p class="card-text">Edad: {{ hijo.age }}</p>
                                         <p class="card-text">Nacido: {{ hijo.fecha_nacimiento|date:"m-d-Y" }}</p>

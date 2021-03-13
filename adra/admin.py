@@ -11,6 +11,8 @@ from .models import Persona, Alimentos, AlmacenAlimentos, Hijo, DelegacionData,G
 #     list_display = ['user', 'date_of_birth']
 
 
+
+
 class HijoInline(admin.TabularInline):
     model = Hijo
 

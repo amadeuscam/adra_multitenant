@@ -1,7 +1,11 @@
+import io
 import os
 import time
 from datetime import date
+from decimal import Decimal
+
 import telegram
+import xlsxwriter
 from PyPDF2 import PdfFileReader, PdfFileWriter
 from PyPDF2.generic import BooleanObject, NameObject, IndirectObject
 from allauth.account.adapter import DefaultAccountAdapter
@@ -30,6 +34,7 @@ from .filters import AlimentosFilters
 from .forms import AlimentosFrom, HijoForm, PersonaForm, UserEditForm, GastoForm
 from .models import Persona, Alimentos, AlmacenAlimentos, Hijo, DelegacionData, Gasto
 from .serializers import PersonaSerializer, UserSerializer
+from shared.models import BeneficiariosGlobales
 
 
 # from django.views.decorators.cache import cache_page
@@ -81,7 +86,8 @@ class PersonaListView(LoginRequiredMixin, ListView):
         context['nbar'] = "home"
         dels = DelegacionData.objects.first()
         self.request.session['platform_name'] = str(self.request.tenant)
-        self.request.session['telegram_active'] = dels.telegram_code
+        if dels.telegram_code:
+            self.request.session['telegram_active'] = dels.telegram_code
 
         return context
 
@@ -118,8 +124,41 @@ class PersonaCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.modificado_por = self.request.user
-        messages.add_message(self.request, messages.SUCCESS, f'Beneficiario añadido correctamente!')
-        return super().form_valid(form)
+
+        if form.instance.otros_documentos and form.instance.dni:
+            messages.add_message(self.request, messages.WARNING, f'Solo se puedes añadir un campo "dni" o "otros documentos"  ')
+            return redirect('adra:persona-create')
+
+        documentacion_ben = form.instance.dni if form.instance.dni else form.instance.otros_documentos
+        dele = DelegacionData.objects.all().first()
+
+        # find_ben = BeneficiariosGlobales.objects.filter(documentacion_beneficiario__contains=form.instance.dni,telefono=form.instance.telefono)
+        find_ben = BeneficiariosGlobales.objects.filter(
+            Q(documentacion_beneficiario__icontains=documentacion_ben) | Q(telefono=form.instance.telefono))
+
+        if find_ben.count() > 0:
+            print(find_ben)
+            try:
+                find = [f for f in find_ben][0]
+                print(find)
+                messages.add_message(self.request, messages.WARNING,
+                                     f'Beneficiario ya existe en otra delegación! <br> -- <b style="color:red">delegación</b>: {find.delegacion_name} <br> -- <b style="color:red">ciudad</b>:{find.ciudad} <br> -- <b style="color:red">provincia</b>:{find.provincia} ')
+            except Exception:
+                print("no exite datos de este beneficiario")
+
+            return redirect('adra:persona-create')
+        else:
+            print("beneficiarul no existe")
+            ben_global = BeneficiariosGlobales(delegacion_name=dele.nombre,
+                                               nombre_beneficiario=form.instance.nombre_apellido,
+                                               documentacion_beneficiario=documentacion_ben,
+                                               ciudad=dele.ciudad,
+                                               provincia=dele.provincia,
+                                               telefono=form.instance.telefono,
+                                               )
+            ben_global.save()
+            messages.add_message(self.request, messages.SUCCESS, f'Beneficiario añadido correctamente!')
+            return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -589,18 +628,43 @@ def telegram_messages(request):
 
 
 def gastos_delegacion(request):
+    ingreso = Gasto.objects.filter(tipo='ingreso').aggregate(Sum('importe')).get('importe__sum')
+    gasto = Gasto.objects.filter(tipo='gasto').aggregate(Sum('importe')).get('importe__sum')
+
+    bal_dict = {
+        "balance": 0.0,
+        "tipo": None,
+        "es_positivo": True
+    }
+    if ingreso and gasto:
+        bal_dict['balance'] = Decimal(ingreso) - Decimal(gasto)
+        bal_dict['tipo'] = 'ambas'
+        if (Decimal(ingreso) - Decimal(gasto)) < 0:
+            bal_dict['es_positivo'] = False
+    elif ingreso:
+        bal_dict['balance'] = Decimal(ingreso)
+        bal_dict['tipo'] = 'ingreso'
+        if Decimal(ingreso) < 0:
+            bal_dict['es_positivo'] = False
+    elif gasto:
+        bal_dict['balance'] = Decimal(gasto)
+        bal_dict['tipo'] = 'gasto'
+        if Decimal(gasto) < 0:
+            bal_dict['es_positivo'] = False
+
     gastos = Gasto.objects.all()
 
     if request.method == 'POST':
         g_form = GastoForm(request.POST)
         if g_form.is_valid():
-            gasto = g_form.save(commit=False)
-            gasto.save()
+            gasto_m = g_form.save(commit=False)
+            gasto_m.save()
             return redirect('adra:gastos_delegacion_view')
 
     else:
         g_form = GastoForm()
-    return render(request, 'gastos/index.html', {'nbar': "gast", 'gasto_ret': gastos, "form_g":g_form})
+    return render(request, 'gastos/index.html',
+                  {'nbar': "gast", 'gasto_ret': gastos, "form_g": g_form, "balance": bal_dict})
 
 
 def export_users_csv(request):
@@ -684,41 +748,6 @@ def export_users_csv(request):
 def buscar_fecha(request):
     alimentos_list = Alimentos.objects.all()
     user_filter = AlimentosFilters(request.GET, queryset=alimentos_list)
-    # EXCEL ZONE
-    # # Create a workbook and add a worksheet.
-    # workbook = xlsxwriter.Workbook('AlimentosEnero-Julio.xlsx')
-    # worksheet = workbook.add_worksheet()
-    # # Start from the first cell. Rows and columns are zero indexed.
-    # row = 0
-    # col = 0
-    # bold = workbook.add_format({'bold': True})
-    #
-    #
-    # for u in user_filter.qs:
-    #     worksheet.write(row, col, f'{u.persona}')
-    #     worksheet.write(row, col + 1, f'{u.fecha_recogida}')
-    #     worksheet.write_number(row, col + 2, u.arroz_blanco)
-    #     worksheet.write_number(row, col + 3, u.garbanzo_cocido)
-    #     worksheet.write_number(row, col + 4, u.atun_sardina)
-    #     worksheet.write_number(row, col + 5, u.sardina)
-    #     worksheet.write_number(row, col + 6, u.pasta_espagueti)
-    #     worksheet.write_number(row, col + 7, u.tomate_frito)
-    #     worksheet.write_number(row, col + 8, u.galletas)
-    #     worksheet.write_number(row, col + 9, u.macedonia_verdura_conserva)
-    #     worksheet.write_number(row, col + 10, u.fruta_conserva_pera)
-    #     worksheet.write_number(row, col + 11, u.fruta_conserva_coctel)
-    #     worksheet.write_number(row, col + 12, u.tarito_pollo)
-    #     worksheet.write_number(row, col + 13, u.tarito_fruta)
-    #     worksheet.write_number(row, col + 14, u.leche)
-    #     worksheet.write_number(row, col + 15, u.batido_chocolate)
-    #     worksheet.write_number(row, col + 16, u.aceite_de_oliva)
-    #     worksheet.write(row, col + 17, f'{u.modificado_por}')
-    #     row += 1
-    #
-    #     print(u.fecha_recogida)
-    # workbook.close()
-    # print(arroz_sum)
-    # alubia_sum = user_filter.qs.aggregate(Sum('alubia_blanca'))
     alimento_1 = user_filter.qs.aggregate(Sum('alimento_1'))
     alimento_2 = user_filter.qs.aggregate(Sum('alimento_2'))
     alimento_3 = user_filter.qs.aggregate(Sum('alimento_3'))
@@ -815,12 +844,12 @@ def generar_hoja_entrega(request, pk):
             mayores += 1
         else:
             menores += 1
-
+    documentos = persona.dni if persona.dni else persona.otros_documentos
     field_dictionary = {
         "NombreOAR": f"{request.tenant}",
         "DireccioOAR": f"{dels.direccion}",
         "Nombre y apellidos del representante de la unidad familiar": f"{persona.nombre_apellido}",
-        "DNINIEPasaporte 1": f"{persona.dni}",
+        "DNINIEPasaporte 1": f"{documentos}",
         "Teléfono": f"{persona.telefono}",
         "Domicilio": f"{persona.domicilio}",
         "Localidad": f"{persona.ciudad}",
@@ -860,8 +889,8 @@ def generar_hoja_valoracion_social(request, pk):
         hijo_dict = {}
         hijo_dict['parentesco'] = f'{h.parentesco}'
         hijo_dict['nombre_apellido_hijo'] = f'{h.nombre_apellido}'
-        hijo_dict['dni_hijo'] = f'{h.dni}'
-        hijo_dict['pas_hijo'] = f'{h.otros_documentos}'
+        hijo_dict['dni_hijo'] = f'{h.dni}' if h.dni else ''
+        hijo_dict['pas_hijo'] = f'{h.otros_documentos}' if h.otros_documentos else ''
         hijo_dict['fecha_nacimiento_hijo'] = f"{'{:%d-%m-%Y}'.format(h.fecha_nacimiento)}"
         hijos.append(hijo_dict)
     document.merge(
@@ -997,7 +1026,7 @@ class CustomAllauthAdapter(DefaultAccountAdapter):
         if context.get('activate_url'):
             account_confirm_email = 'accounts/confirm-email/'
             context['activate_url'] = (
-                        "http://" + str(hostname_without_port) + "/" + account_confirm_email + context['key'])
+                    "http://" + str(hostname_without_port) + "/" + account_confirm_email + context['key'])
             user = context.get('user')
 
             sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
